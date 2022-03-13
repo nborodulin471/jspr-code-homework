@@ -1,4 +1,4 @@
-package ru.netology;
+package httpServer;
 
 import java.io.*;
 import java.net.ServerSocket;
