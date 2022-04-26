@@ -20,12 +20,24 @@ public class Controller {
         //<editor-fold desc="Работа с сообщениями">
         server.addHandler("GET", "/messages", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
-                // TODO: handlers code
+                final var content = "куча сообщений".getBytes();
+                try {
+                    server.answerOk(responseStream, "text/plain", content);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         });
         server.addHandler("POST", "/messages", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
-                // TODO: handlers code
+                request.getParameters();
+                // тут какая-то логика по обработке запроса
+                final var content = "10 последних из кучи сообщений".getBytes();
+                try {
+                    server.answerOk(responseStream, "text/plain", content);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         });
         //</editor-fold>
@@ -38,12 +50,6 @@ public class Controller {
         });
 
         server.addHandler("GET", "/spring.svg", new Handler() {
-            public void handle(Request request, BufferedOutputStream responseStream) {
-                Dao.getFile(server, request.getPath(), responseStream);
-            }
-        });
-
-        server.addHandler("GET", "/spring.png", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
                 Dao.getFile(server, request.getPath(), responseStream);
             }
@@ -65,21 +71,19 @@ public class Controller {
                 Dao.getFile(server, request.getPath(), responseStream);
             }
         });
-        server.addHandler("GET", "/styles.css", new Handler() {
-            public void handle(Request request, BufferedOutputStream responseStream) {
-                Dao.getFile(server, request.getPath(), responseStream);
-            }
-        });
+
         server.addHandler("GET", "/links.html", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
                 Dao.getFile(server, request.getPath(), responseStream);
             }
         });
+
         server.addHandler("GET", "/forms.html", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
                 Dao.getFile(server, request.getPath(), responseStream);
             }
         });
+
         server.addHandler("GET", "/classic.html", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
                 try {
@@ -96,11 +100,13 @@ public class Controller {
                 }
             }
         });
+
         server.addHandler("GET", "/events.html", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
                 Dao.getFile(server, request.getPath(), responseStream);
             }
         });
+
         server.addHandler("GET", "/events.js", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
                 Dao.getFile(server, request.getPath(), responseStream);

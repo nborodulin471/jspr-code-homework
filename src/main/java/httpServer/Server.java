@@ -8,7 +8,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,8 +28,7 @@ public class Server {
         final var threadPool = Executors.newFixedThreadPool(TREAD_POOL_COUNT);
         try (final var serverSocket = new ServerSocket(port)) {
             while (true) {
-                var socket = serverSocket.accept();
-                threadPool.execute(() -> listen(socket));
+                threadPool.execute(() -> listen(serverSocket));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -65,14 +63,13 @@ public class Server {
         return false;
     }
 
-    private void listen(Socket socket) {
+    private void listen(ServerSocket serverSocket) {
         try (
+                final var socket = serverSocket.accept();
                 final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 final var out = new BufferedOutputStream(socket.getOutputStream())
         ) {
-            if (in.read() == -1) {
-                return;
-            }
+
             final var request = parseRequest(in);
             if (methodIsNotFound(request, out)) {
                 return;
@@ -89,6 +86,7 @@ public class Server {
         if (parts.length != 3) {
             throw new IOException("Путь не валиден");
         }
+        String method = parts[0];
         String path = parts[1];
         String absolutePath = null;
         if (path.indexOf("?") != -1) {
@@ -108,22 +106,24 @@ public class Server {
             header = in.readLine();
         }
 
-        String bodyLine = in.readLine();
-        StringBuilder stringBuilder = new StringBuilder();
-        while (bodyLine != null) {
-            stringBuilder.append(bodyLine).append("\r\n");
-            bodyLine = in.readLine();
+        Optional<String> body = Optional.empty();
+        if (!method.equals("GET")) {
+            String bodyLine = in.readLine();
+            StringBuilder stringBuilder = new StringBuilder();
+            while (bodyLine != null) {
+                stringBuilder.append(bodyLine).append("\r\n");
+                bodyLine = in.readLine();
+                body = stringBuilder.length() > 0 ? Optional.of(stringBuilder.toString()) : Optional.empty();
+            }
         }
-        Optional<String> body = stringBuilder.length() > 0 ? Optional.of(stringBuilder.toString()) : Optional.empty();
 
         return Request.builder()
-                .method(parts[0])
+                .method(method)
                 .path(absolutePath)
                 .headers(headers)
                 .parameters(URLEncodedUtils.parse(requestLine, Charset.defaultCharset()))
                 .body(body)
                 .build();
-
     }
 
     public Handler findHandler(String method, String path) {
