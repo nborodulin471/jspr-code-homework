@@ -1,21 +1,25 @@
 package httpServer;
 
+import httpServer.model.Request;
+import org.apache.http.client.utils.URLEncodedUtils;
+
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.util.List;
+import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
 public class Server {
     private final int port;
     private final int TREAD_POOL_COUNT = 64;
-    private final List<String> VALID_PATHS = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
+    private final ConcurrentHashMap<Map<String, String>, Handler> handlers = new ConcurrentHashMap<>();
 
     public Server(int port) {
         this.port = port;
@@ -35,38 +39,20 @@ public class Server {
         }
     }
 
-    private void listen(Socket socket) {
-        try (
-                final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                final var out = new BufferedOutputStream(socket.getOutputStream())
-        ) {
-            final var path = calculatePath(in);
-            if (methodIsNotFound(path, out)) {
-                return;
-            }
-            final var filePath = Path.of(".", "public", path);
-            final var mimeType = Files.probeContentType(filePath);
-            if (methodIsClassic(path)) {
-                processClassic(out, mimeType, filePath);
-                return;
-            }
-            answerOk(out, mimeType, Files.readAllBytes(filePath));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+    public void answerOk(BufferedOutputStream out, String mimeType, byte[] content) throws IOException {
+        out.write((
+                "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: " + mimeType + "\r\n" +
+                        "Content-Length: " + content.length + "\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n"
+        ).getBytes());
+        out.write(content);
+        out.flush();
     }
 
-    private String calculatePath(BufferedReader in) throws IOException {
-        final var requestLine = in.readLine();
-        final var parts = requestLine.split(" ");
-        if (parts.length != 3) {
-            throw new IOException("Path is not valid");
-        }
-        return parts[1];
-    }
-
-    private boolean methodIsNotFound(String path, BufferedOutputStream out) throws IOException {
-        if (!VALID_PATHS.contains(path)) {
+    public boolean methodIsNotFound(Request request, BufferedOutputStream out) throws IOException {
+        if (findHandler(request.getMethod(), request.getPath()) == null) {
             out.write((
                     "HTTP/1.1 404 Not Found\r\n" +
                             "Content-Length: 0\r\n" +
@@ -79,28 +65,74 @@ public class Server {
         return false;
     }
 
-    private void answerOk(BufferedOutputStream out, String mimeType, byte[] content) throws IOException {
-        out.write((
-                "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Content-Length: " + content.length + "\r\n" +
-                        "Connection: close\r\n" +
-                        "\r\n"
-        ).getBytes());
-        out.write(content);
-        out.flush();
+    private void listen(Socket socket) {
+        try (
+                final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                final var out = new BufferedOutputStream(socket.getOutputStream())
+        ) {
+            if (in.read() == -1) {
+                return;
+            }
+            final var request = parseRequest(in);
+            if (methodIsNotFound(request, out)) {
+                return;
+            }
+            findHandler(request.getMethod(), request.getPath()).handle(request, out);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
-    private boolean methodIsClassic(String path) {
-        return path.equals("/classic.html");
+    private Request parseRequest(BufferedReader in) throws IOException {
+        final var requestLine = in.readLine();
+        final var parts = requestLine.split(" ");
+        if (parts.length != 3) {
+            throw new IOException("Путь не валиден");
+        }
+        String path = parts[1];
+        String absolutePath = null;
+        if (path.indexOf("?") != -1) {
+            absolutePath = path.substring(0, path.indexOf("?"));
+        }else {
+            absolutePath = path;
+        }
+
+        String header = in.readLine();
+        HashMap<String, String> headers = new HashMap<>();
+        while (header.length() > 0) {
+            int idx = header.indexOf(":");
+            if (idx == -1) {
+                throw new IOException("Не корректный параметр : " + header);
+            }
+            headers.put(header.substring(0, idx), header.substring(idx + 1, header.length()));
+            header = in.readLine();
+        }
+
+        String bodyLine = in.readLine();
+        StringBuilder stringBuilder = new StringBuilder();
+        while (bodyLine != null) {
+            stringBuilder.append(bodyLine).append("\r\n");
+            bodyLine = in.readLine();
+        }
+        Optional<String> body = stringBuilder.length() > 0 ? Optional.of(stringBuilder.toString()) : Optional.empty();
+
+        return Request.builder()
+                .method(parts[0])
+                .path(absolutePath)
+                .headers(headers)
+                .parameters(URLEncodedUtils.parse(requestLine, Charset.defaultCharset()))
+                .body(body)
+                .build();
+
     }
 
-    private void processClassic(BufferedOutputStream out, String mimeType, Path filePath) throws IOException {
-        final var template = Files.readString(filePath);
-        final var content = template.replace(
-                "{time}",
-                LocalDateTime.now().toString()
-        ).getBytes();
-        answerOk(out, mimeType, content);
+    public Handler findHandler(String method, String path) {
+        return handlers.get(Map.of(method, path));
+    }
+
+    public void addHandler(String method, String path, Handler handler) {
+        if (findHandler(method, path) == null) {
+            handlers.put(Map.of(method, path), handler);
+        }
     }
 }
