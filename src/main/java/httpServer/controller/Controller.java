@@ -30,11 +30,11 @@ public class Controller {
         });
         server.addHandler("POST", "/messages", new Handler() {
             public void handle(Request request, BufferedOutputStream responseStream) {
-                request.getParameters();
+                String size = request.getQueryParam("last").getValue();
                 // тут какая-то логика по обработке запроса
-                final var content = "10 последних из кучи сообщений".getBytes();
+                String content = size + " последних из кучи сообщений";
                 try {
-                    server.answerOk(responseStream, "text/plain", content);
+                    server.answerOk(responseStream, "text/plain", content.getBytes());
                 } catch (IOException e) {
                     e.printStackTrace();
                 }

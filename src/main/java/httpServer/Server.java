@@ -1,14 +1,13 @@
 package httpServer;
 
 import httpServer.model.Request;
-import org.apache.http.client.utils.URLEncodedUtils;
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
-import java.nio.charset.Charset;
+import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -28,12 +27,11 @@ public class Server {
         final var threadPool = Executors.newFixedThreadPool(TREAD_POOL_COUNT);
         try (final var serverSocket = new ServerSocket(port)) {
             while (true) {
-                threadPool.execute(() -> listen(serverSocket));
+                Socket socket = serverSocket.accept();
+                threadPool.submit(() -> listen(socket));
             }
         } catch (Exception e) {
             e.printStackTrace();
-        } finally {
-            threadPool.shutdown();
         }
     }
 
@@ -49,8 +47,8 @@ public class Server {
         out.flush();
     }
 
-    public boolean methodIsNotFound(Request request, BufferedOutputStream out) throws IOException {
-        if (findHandler(request.getMethod(), request.getPath()) == null) {
+    private void notFound(BufferedOutputStream out) {
+        try {
             out.write((
                     "HTTP/1.1 404 Not Found\r\n" +
                             "Content-Length: 0\r\n" +
@@ -58,23 +56,23 @@ public class Server {
                             "\r\n"
             ).getBytes());
             out.flush();
-            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-        return false;
     }
 
-    private void listen(ServerSocket serverSocket) {
+    private void listen(Socket socket) {
         try (
-                final var socket = serverSocket.accept();
                 final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 final var out = new BufferedOutputStream(socket.getOutputStream())
         ) {
-
             final var request = parseRequest(in);
-            if (methodIsNotFound(request, out)) {
+            Handler handler = findHandler(request.getMethod(), request.getPath());
+            if (handler == null) {
+                notFound(out);
                 return;
             }
-            findHandler(request.getMethod(), request.getPath()).handle(request, out);
+            handler.handle(request, out);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -91,38 +89,26 @@ public class Server {
         String absolutePath = null;
         if (path.indexOf("?") != -1) {
             absolutePath = path.substring(0, path.indexOf("?"));
-        }else {
+        } else {
             absolutePath = path;
         }
 
-        String header = in.readLine();
+        String line = in.readLine();
         HashMap<String, String> headers = new HashMap<>();
-        while (header.length() > 0) {
-            int idx = header.indexOf(":");
+        while (line.length() > 0) {
+            int idx = line.indexOf(":");
             if (idx == -1) {
-                throw new IOException("Не корректный параметр : " + header);
+                throw new IOException("Не корректный параметр : " + line);
             }
-            headers.put(header.substring(0, idx), header.substring(idx + 1, header.length()));
-            header = in.readLine();
-        }
-
-        Optional<String> body = Optional.empty();
-        if (!method.equals("GET")) {
-            String bodyLine = in.readLine();
-            StringBuilder stringBuilder = new StringBuilder();
-            while (bodyLine != null) {
-                stringBuilder.append(bodyLine).append("\r\n");
-                bodyLine = in.readLine();
-                body = stringBuilder.length() > 0 ? Optional.of(stringBuilder.toString()) : Optional.empty();
-            }
+            headers.put(line.substring(0, idx), line.substring(idx + 1, line.length()));
+            line = in.readLine();
         }
 
         return Request.builder()
                 .method(method)
                 .path(absolutePath)
                 .headers(headers)
-                .parameters(URLEncodedUtils.parse(requestLine, Charset.defaultCharset()))
-                .body(body)
+                .queryParams(Request.parseQueryParams(parts[1]))
                 .build();
     }
 
